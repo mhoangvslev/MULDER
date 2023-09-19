@@ -388,9 +388,20 @@ def contactSource(query, referer, server, path):
     json = "application/sparql-results+json"
     if '0.0.0.0' in server:
         server = server.replace('0.0.0.0', 'localhost')
+        
+    parsed_endpoint = urlparse.urlparse(referer)
+    
+    scheme = parsed_endpoint.scheme
+    server = parsed_endpoint.netloc
+    path = parsed_endpoint.path
+    
+    referer = f"{scheme}://{server}{path}"
+        
     # Build the query and header.
     # params = urllib.urlencode({'query': query})
-    params = urlparse.urlencode({'query': query, 'format': json, 'timeout':10000000})
+    params = {k: v[0] for k, v in urlparse.parse_qs(parsed_endpoint.query).items()}
+    params.update({'query': query, 'format': json, 'timeout': 10000000})
+    params = urlparse.urlencode(params)
     headers = {"Accept": "*/*", "Referer": referer, "Host": server}
 
     # js = "application/sparql-results+json"

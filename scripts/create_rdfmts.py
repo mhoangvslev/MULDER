@@ -1,6 +1,8 @@
 #!/usr/bin/env python3.5
 
 import getopt, sys
+from itertools import combinations
+import random
 from pprint import pprint
 import json
 import logging
@@ -9,6 +11,8 @@ import urllib.parse as urlparse
 from http import HTTPStatus
 import requests
 from multiprocessing import Queue, Process
+
+from tqdm import tqdm
 
 
 xsd = "http://www.w3.org/2001/XMLSchema#"
@@ -54,22 +58,66 @@ consoleHandler.setLevel(logging.INFO)
 consoleHandler.setFormatter(logFormatter)
 logger.addHandler(consoleHandler)
 
+from requests import Session
+import time
+
+class ResilientSession(Session):
+    """
+    This class is supposed to retry requests that return temporary errors.
+    At this moment it supports: 502, 503, 504
+    """
+
+    def request(self, method, url, **kwargs):
+        counter = 0
+        delay = 0.5
+        max_counter = 1000
+
+        while True:
+            counter += 1
+            
+            try: 
+                r = super().request(method, url, **kwargs)
+                
+                if r.status_code == 200:
+                    return r
+                else:
+                    time.sleep(delay)
+
+            except ConnectionResetError:
+                time.sleep(delay)
+        
+            if counter == max_counter:
+                raise RuntimeError(f"Maximum retries ({max_counter}) reached!")
+
+
 
 def contactRDFSource(query, endpoint, format="application/sparql-results+json"):
-    if 'https' in endpoint:
-        server = endpoint.split("https://")[1]
-    else:
-        server = endpoint.split("http://")[1]
-
-    (server, path) = server.split("/", 1)
+    
+    parsed_endpoint = urlparse.urlparse(endpoint)
+    
+    scheme = parsed_endpoint.scheme
+    server = parsed_endpoint.netloc
+    path = parsed_endpoint.path
+    
+    endpoint = f"{scheme}://{server}{path}"
+    
     # Formats of the response.
     json = format
     # Build the query and header.
-    params = urlparse.urlencode({'query': query, 'format': json, 'timeout': 10000000})
+    
+    params = {k: v[0] for k, v in urlparse.parse_qs(parsed_endpoint.query).items()}
+    params.update({'query': query, 'format': json, 'timeout': 10000000})
+    params = urlparse.urlencode(params)
     headers = {"Accept": "*/*", "Referer": endpoint, "Host": server}
-
+    
+    # raise RuntimeError(f"{endpoint} + {params}")
+        
     try:
-        resp = requests.get(endpoint, params=params, headers=headers)
+        
+        s = ResilientSession()
+        
+        #resp = requests.get(endpoint, params=params, headers=headers)
+        resp = s.get(endpoint, params=params, headers=headers)
         if resp.status_code == HTTPStatus.OK:
             res = resp.text
             reslist = []
@@ -118,8 +166,9 @@ def contactRDFSource(query, endpoint, format="application/sparql-results+json"):
             logger.info("Endpoint->" + endpoint + str(resp.reason) + str(resp.status_code) + str(resp.text) + query)
 
     except Exception as e:
-        # print("Exception during query execution to", endpoint, ': ', e)
-        logger.info("Exception during query execution to", endpoint, ': ', e)
+        print(f"Exception during query execution to {endpoint}, params = {params}")
+        raise e
+        # logger.info("Exception during query execution to", endpoint, ': ', e)
     finally:
         pass
 
@@ -669,6 +718,8 @@ if __name__ == "__main__":
     sparqlendps = {}
     eoffs = {}
     epros = []
+    
+    print("Extract concepts")
     for url in endpoints:
         # rdfmts = get_typed_concepts(url)
         # sparqlendps[url] = rdfmts.copy()
@@ -678,6 +729,7 @@ if __name__ == "__main__":
         epros.append(p1)
         p1.start()
 
+    print("Extracting molecules templates")
     while len(eoffs) > 0:
         for url in eoffs:
             q = eoffs[url]
@@ -691,23 +743,24 @@ if __name__ == "__main__":
 
     eofflags = []
     epros = []
-    for e1 in sparqlendps:
-        for e2 in sparqlendps:
-            if e1 == e2:
-                continue
-            q = Queue()
-            eofflags.append(q)
-            print("Finding inter-links between:", e1, ' and ', e2, ' .... ')
-            print("==============================//=========//===============================")
-            p = Process(target=get_links, args=(e1, sparqlendps[e1], e2, sparqlendps[e2], q,))
-            epros.append(p)
-            p.start()
-            # get_links(e1, sparqlendps[e1], e2, sparqlendps[e2])
+    
+    # Finding inter-links
+    print("Finding inter-links")
+    for e1, e2 in tqdm(list(combinations(sparqlendps, 2))):
+        q = Queue()
+        eofflags.append(q)
+        #print("Finding inter-links between:", e1, ' and ', e2, ' .... ')
+        #print("==============================//=========//===============================")
+        p = Process(target=get_links, args=(e1, sparqlendps[e1], e2, sparqlendps[e2], q,))
+        epros.append(p)
+        p.start()
+        # get_links(e1, sparqlendps[e1], e2, sparqlendps[e2])
 
+    print("Merging molecules templates 1")
     while len(eofflags) > 0:
         for q in eofflags:
             rdfmts = q.get()
-            for rdfmt in rdfmts:
+            for rdfmt in tqdm(rdfmts):
                 rootType = rdfmt['rootType']
                 if rootType not in dsrdfmts:
                     dsrdfmts[rootType] = rdfmt
@@ -720,8 +773,8 @@ if __name__ == "__main__":
         if p.is_alive():
             p.terminate()
 
-    for e in sparqlendps:
-        rdfmts = sparqlendps[e]
+    print("Merging molecules templates 2")
+    for rdfmts in tqdm(list(sparqlendps.values())):
         for rdfmt in rdfmts:
             rootType = rdfmt['rootType']
             if rootType not in dsrdfmts:
