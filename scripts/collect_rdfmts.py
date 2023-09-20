@@ -1,5 +1,6 @@
 #!/usr/bin/env python3.5
 
+from itertools import combinations
 import urllib
 import urllib.parse as urlparse
 import http.client as htclient
@@ -33,11 +34,11 @@ def get_rdfs_ranges(referer, server, path, p, limit=-1):
         offset = 0
         numrequ = 0
         while True:
-            query_copy = RDFS_RANGES + " LIMIT " + str(limit) + " OFFSET " + str(offset)
+            query_copy = f"{RDFS_RANGES} LIMIT {limit} OFFSET {offset}"
             res, card = contactSource(query_copy, referer, server, path)
             numrequ += 1
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 if limit == 0:
                     break
                 continue
@@ -72,11 +73,11 @@ def find_instance_range(referer, server, path, t, p, limit=-1):
         offset = 0
         numrequ = 0
         while True:
-            query_copy = INSTANCE_RANGES + " LIMIT " + str(limit) + " OFFSET " + str(offset)
+            query_copy = f"{INSTANCE_RANGES} LIMIT {limit} OFFSET {offset}"
             res, card = contactSource(query_copy, referer, server, path)
             numrequ += 1
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 if limit == 0:
                     break
                 continue
@@ -112,12 +113,15 @@ def get_concepts(endpoint, limit=-1, outqueue=Queue()):
     """
     query = "SELECT DISTINCT ?t WHERE{ ?s a ?t } "
     referer = endpoint
-    if 'https' in endpoint:
-        server = endpoint.split("https://")[1]
-    else:
-        server = endpoint.split("http://")[1]
 
-    (server, path) = server.split("/", 1)
+    parsed_endpoint = urlparse.urlparse(endpoint)
+    
+    scheme = parsed_endpoint.scheme
+    server = parsed_endpoint.netloc
+    path = parsed_endpoint.path
+    
+    endpoint = f"{scheme}://{server}{path}"
+    
     reslist = []
     if limit == -1:
         limit = 50
@@ -130,7 +134,7 @@ def get_concepts(endpoint, limit=-1, outqueue=Queue()):
             numrequ += 1
             # print 'number of requests: ', numrequ
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 # print ('limit:', limit)
                 if limit == 0:
                     break
@@ -198,7 +202,7 @@ def get_predicates(referer, server, path, t, limit=-1):
             numrequ += 1
             # print "predicates card:", card
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 # print "setting limit to: ", limit
                 if limit == 0:
                     rand_inst_res = get_preds_of_random_instances(referer, server, path, t)
@@ -243,7 +247,7 @@ def get_preds_of_random_instances(referer, server, path, t, limit=-1):
             numrequ += 1
             # print "rand predicates card:", card
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 # print "rand setting limit to: ", limit
                 if limit == 0:
                     break
@@ -280,7 +284,7 @@ def get_preds_of_instance(referer, server, path, inst, limit=-1):
             numrequ += 1
             # print "inst predicates card:", card
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 # print "inst setting limit to: ", limit
                 if limit == 0:
                     break
@@ -316,7 +320,7 @@ def getResults(query, endpoint, limit=-1):
             numrequ += 1
             # print 'number of requests: ', numrequ
             if card == -2:
-                limit = limit / 2
+                limit = int(limit / 2)
                 # print 'limit:', limit
                 if limit == 0:
                     break
@@ -348,19 +352,33 @@ def getResults(query, endpoint, limit=-1):
 
 
 def contactSource(query, referer, server, path):
+
+    parsed_endpoint = urlparse.urlparse(referer)
+    
+    scheme = parsed_endpoint.scheme
+    server = parsed_endpoint.netloc
+    path = parsed_endpoint.path
+
     # Formats of the response.
     json = "application/sparql-results+json"
     if '0.0.0.0' in server:
         server = server.replace('0.0.0.0', 'localhost')
+    
+    referer = f"{scheme}://{server}{path}"
+    
+    # Formats of the response.
+    json = format
     # Build the query and header.
-    # params = urllib.urlencode({'query': query})
-    params = urlparse.urlencode({'query': query, 'format': json})
+    params = {k: v[0] for k, v in urlparse.parse_qs(parsed_endpoint.query).items()}
+    params.update({'query': query, 'format': json, 'timeout': 10000000})
+    params = urlparse.urlencode(params)
     headers = {"Accept": "*/*", "Referer": referer, "Host": server}
 
-    # js = "application/sparql-results+json"
-    # params = {'query': query, 'format': js}
+    print(referer, params, query)
+
     try:
         resp = requests.get(referer, params=params, headers=headers)
+        print(resp.text)
         if resp.status_code == HTTPStatus.OK:
             res = resp.text
             reslist = []
@@ -369,9 +387,9 @@ def contactSource(query, referer, server, path):
                 res = res.replace("true", "True")
                 res = eval(res)
             except Exception as ex:
-                print("EX processing res", ex)
+                raise RuntimeError("EX processing res")
 
-            if type(res) is dict:
+            if isinstance(res, dict):
                 if "results" in res:
                     for x in res['results']['bindings']:
                         for key, props in x.items():
@@ -399,6 +417,9 @@ def contactSource(query, referer, server, path):
                     return reslist, len(reslist)
                 else:
                     return res['boolean'], 1
+                
+            elif isinstance(res, bool):
+                return res, 1
 
         else:
             print("Endpoint->", referer, resp.reason, resp.status_code, query)
@@ -426,12 +447,14 @@ def get_links(endpoint1, rdfmt1, endpoint2, rdfmt2, q):
 
 def get_external_links(endpoint1, rootType, pred, endpoint2, rdfmt2):
     query = 'SELECT DISTINCT ?o  WHERE {?s a <' + rootType + '> ; <' + pred + '> ?o . FILTER (isIRI(?o))}'
+    
     referer = endpoint1
-    if 'https' in endpoint1:
-        server = endpoint1.split("https://")[1]
-    else:
-        server = endpoint1.split("http://")[1]
-    (server, path) = server.split("/", 1)
+    parsed_endpoint = urlparse.urlparse(endpoint1)
+    
+    scheme = parsed_endpoint.scheme
+    server = parsed_endpoint.netloc
+    path = parsed_endpoint.path
+    
     reslist = []
     limit = 50
     offset = 0
@@ -441,11 +464,11 @@ def get_external_links(endpoint1, rootType, pred, endpoint2, rdfmt2):
     print("Checking external links: ", endpoint1, rootType, pred, ' in ', endpoint2)
     print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
     while True:
-        query_copy = query + " LIMIT " + str(limit) + " OFFSET " + str(offset)
+        query_copy = f"{query} LIMIT {limit} OFFSET {offset}"
         res, card = contactSource(query_copy, referer, server, path)
         numrequ += 1
         if card == -2:
-            limit = limit / 2
+            limit = int(limit / 2)
             if limit == 0:
                 break
 
@@ -752,12 +775,14 @@ def endpointsAccessible(endpoints):
     found = False
     for e in endpoints:
         referer = e
-        if 'https' in e:
-            server = e.split("https://")[1]
-        else:
-            server = e.split("http://")[1]
-        (server, path) = server.split("/", 1)
+        parsed_endpoint = urlparse.urlparse(referer)
+        scheme = parsed_endpoint.scheme
+        server = parsed_endpoint.netloc
+        path = parsed_endpoint.path
+
         val, c = contactSource(ask, referer, server, path)
+        print(val, c)
+
         if c == -2:
             print(e, '-> is not accessible. Hence, will not be included in the federation!')
         if val:
@@ -779,7 +804,7 @@ if __name__ == "__main__":
                 print("Endpoints file should have at least one url")
                 sys.exit(1)
 
-            endpoints = [e.strip('\n') for e in endpoints]
+            endpoints = [e.strip('\n') for e in endpoints if not e.startswith("#")]
             if not endpointsAccessible(endpoints):
                 print("None of the endpoints can be accessed. Please check if you write URLs properly!")
                 sys.exit(1)
@@ -797,17 +822,14 @@ if __name__ == "__main__":
 
     # TODO: NestedHashJoinFilter to find links between datasets
     eofflags = list()
-    for endpoint1 in rdfmts:
-        for endpoint2 in rdfmts:
-            if endpoint1 == endpoint2:
-                continue
-            q = Queue()
-            eofflags.append(q)
-            print("Finding inter-links between:", endpoint1, ' and ', endpoint2, ' .... ')
-            print("==============================//=========//===============================")
-            p = Process(target=get_links, args=(endpoint1, rdfmts[endpoint1], endpoint2, rdfmts[endpoint2], q,))
-            p.start()
-            #get_links(endpoint1, rdfmts[endpoint1], endpoint2, rdfmts[endpoint2])
+    for endpoint1, endpoint2 in combinations(rdfmts, 2):
+        q = Queue()
+        eofflags.append(q)
+        print("Finding inter-links between:", endpoint1, ' and ', endpoint2, ' .... ')
+        print("==============================//=========//===============================")
+        p = Process(target=get_links, args=(endpoint1, rdfmts[endpoint1], endpoint2, rdfmts[endpoint2], q,))
+        p.start()
+        #get_links(endpoint1, rdfmts[endpoint1], endpoint2, rdfmts[endpoint2])
 
     while len(eofflags) > 0:
         for q in eofflags:

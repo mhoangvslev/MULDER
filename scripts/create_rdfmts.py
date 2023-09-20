@@ -196,8 +196,7 @@ def get_typed_concepts(endpoint, tq, limit=-1, types=[]):
                 res, card = contactRDFSource(query_copy, referer)
                 numrequ += 1
                 if card == -2:
-                    limit = limit // 2
-                    limit = int(limit)
+                    limit = int(limit / 2)
                     if limit < 1:
                         break
                     continue
@@ -311,8 +310,7 @@ def get_rdfs_ranges(referer, p, limit=-1):
             res, card = contactRDFSource(query_copy, referer)
             numrequ += 1
             if card == -2:
-                limit = limit // 2
-                limit = int(limit)
+                limit = int(limit / 2)
                 # print "setting limit to: ", limit
                 if limit < 1:
                     break
@@ -359,7 +357,7 @@ def find_instance_range(referer, t, p, limit=-1):
             res, card = contactRDFSource(query_copy, referer)
             numrequ += 1
             if card == -2:
-                limit = limit // 2
+                limit = int(limit / 2)
                 limit = int(limit)
                 # print "setting limit to: ", limit
                 if limit < 1:
@@ -414,8 +412,7 @@ def get_predicates(referer, t, limit=-1):
             numrequ += 1
             # print "predicates card:", card
             if card == -2:
-                limit = limit // 2
-                limit = int(limit)
+                limit = int(limit / 2)
                 # print "setting limit to: ", limit
                 if limit < 1:
                     print("giving up on " + query)
@@ -463,8 +460,7 @@ def get_preds_of_random_instances(referer, t, limit=-1):
             numrequ += 1
             # print "rand predicates card:", card
             if card == -2:
-                limit = limit // 2
-                limit = int(limit)
+                limit = int(limit / 2)
                 # print "setting limit to: ", limit
                 if limit < 1:
                     break
@@ -502,8 +498,7 @@ def get_preds_of_instance(referer, inst, limit=-1):
             numrequ += 1
             # print "inst predicates card:", card
             if card == -2:
-                limit = limit // 2
-                limit = int(limit)
+                limit = int(limit / 2)
                 # print "setting limit to: ", limit
                 if limit < 1:
                     break
@@ -605,7 +600,7 @@ def get_external_links(endpoint1, rootType, pred, endpoint2, rdfmt2):
         res, card = contactRDFSource(query_copy, referer)
         numrequ += 1
         if card == -2:
-            limit = limit // 2
+            limit = int(limit / 2)
             if limit < 1:
                 break
             continue
@@ -710,7 +705,7 @@ if __name__ == "__main__":
             print("Endpoints file should have at least one url")
             sys.exit(1)
 
-        endpoints = [e.strip('\n') for e in endpoints]
+        endpoints = [e.strip('\n') for e in endpoints if not e.startswith("#")]
         if not endpointsAccessible(endpoints):
             print("None of the endpoints can be accessed. Please check if you write URLs properly!")
             sys.exit(1)
@@ -760,7 +755,7 @@ if __name__ == "__main__":
     while len(eofflags) > 0:
         for q in eofflags:
             rdfmts = q.get()
-            for rdfmt in tqdm(rdfmts):
+            for rdfmt in rdfmts:
                 rootType = rdfmt['rootType']
                 if rootType not in dsrdfmts:
                     dsrdfmts[rootType] = rdfmt
