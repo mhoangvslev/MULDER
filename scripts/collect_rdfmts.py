@@ -367,7 +367,6 @@ def contactSource(query, referer, server, path):
     referer = f"{scheme}://{server}{path}"
     
     # Formats of the response.
-    json = format
     # Build the query and header.
     params = {k: v[0] for k, v in urlparse.parse_qs(parsed_endpoint.query).items()}
     params.update({'query': query, 'format': json, 'timeout': 10000000})
@@ -387,6 +386,7 @@ def contactSource(query, referer, server, path):
                 res = res.replace("true", "True")
                 res = eval(res)
             except Exception as ex:
+                print(referer, params)
                 raise RuntimeError("EX processing res")
 
             if isinstance(res, dict):

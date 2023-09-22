@@ -11,6 +11,7 @@ import urllib.parse as urlparse
 from http import HTTPStatus
 import requests
 from multiprocessing import Queue, Process
+import os
 
 from tqdm import tqdm
 
@@ -714,27 +715,52 @@ if __name__ == "__main__":
     eoffs = {}
     epros = []
     
+    sparqlendps_fn = "sparqlendps.json"
+    eoffs_fn = "eoffs.json"
+
+    # if os.path.exists(sparqlendps_fn):
+    #     with open(sparqlendps_fn, "r") as sparqlendps_fs:
+    #         sparqlendps = json.load(sparqlendps_fs)
+
+    # if os.path.exists(eoffs_fn):
+    #     with open(eoffs_fn, "r") as eoffs_fs:
+    #         eoffs = json.load(eoffs_fs)
+
     print("Extract concepts")
     for url in endpoints:
         # rdfmts = get_typed_concepts(url)
         # sparqlendps[url] = rdfmts.copy()
+        # if url in eoffs: 
+        #     print(f"Nothing to do as {url} is already in {eoffs_fn}...")
+        #     continue
         tq = Queue()
         eoffs[url] = tq
         p1 = Process(target=get_typed_concepts, args=(url, tq, ))
         epros.append(p1)
         p1.start()
+    
+    # with open(eoffs_fn, "r") as eoffs_fs:
+    #     print("Exporting eoffs...")
+    #     json.dump(eoffs, eoffs_fs)
 
     print("Extracting molecules templates")
     while len(eoffs) > 0:
         for url in eoffs:
+            # if url not in sparqlendps: 
             q = eoffs[url]
             rdfmts = q.get()
             sparqlendps[url] = rdfmts
+            # else:
+            #     print(f"Nothing to do as {url} is already in {sparqlendps_fn}...")
             del eoffs[url]
             break
     for p in epros:
         if p.is_alive():
             p.terminate()
+
+    with open(sparqlendps_fn, "w") as sparqlendps_fs:
+        print("Exporting summaries")
+        json.dump(sparqlendps, sparqlendps_fs)
 
     eofflags = []
     epros = []
